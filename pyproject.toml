@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lakeflow-connect-bluesky"
+version = "0.1.0"
+description = "Ingest Bluesky and AT Protocol events into Databricks using Lakeflow Connect and Jetstream."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "lakeflow-community-connectors>=0.1.0,<0.2",
+  "requests>=2.32,<3",
+  "zstandard>=0.23,<1",
+  "cbor2>=5.6,<6",
+  "xxhash>=3.5,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyspark>=4.2.0.dev0",
+    "pytest>=8,<9",
+    "pytest-cov>=5,<7",
+    "ruff>=0.9",
+    "build>=1",
+    "dynaconf>=3.3.5,<4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["databricks.labs.community_connector.sources.bluesky*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.md"]
+
+# The upstream version number is not sufficient to identify interface compatibility.
+# uv resolves this exact reviewed revision for local development and CI.
+[tool.uv.sources]
+lakeflow-community-connectors = { git = "https://github.com/databrickslabs/lakeflow-community-connectors.git", rev = "ddc153b9741b686759ad85f25d2d45ca8a6ac24b" }
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/**/*.yaml" }, { file = "src/**/*.md" }, { file = "README.md" }, { file = "MANIFEST.in" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: opt-in authenticated Jetstream integration"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "PLR1730"]
