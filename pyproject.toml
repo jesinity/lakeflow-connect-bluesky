@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
   "lakeflow-community-connectors>=0.1.0,<0.2",
+  "jetstream-lakehouse==0.1.0",
   "requests>=2.32,<3",
   "zstandard>=0.23,<1",
   "cbor2>=5.6,<6",
