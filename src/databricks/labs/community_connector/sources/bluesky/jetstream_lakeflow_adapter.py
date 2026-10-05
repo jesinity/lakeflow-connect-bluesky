@@ -3,12 +3,18 @@
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping
 
-from jetstream_lakehouse import Event
-from jetstream_lakehouse import errors as library_errors
-from jetstream_lakehouse.archive import segment_events
-from jetstream_lakehouse.transport import Transport
+from jetstream_lakehouse import errors as library_errors  # pylint: disable=import-error
+from jetstream_lakehouse.archive import segment_events  # pylint: disable=import-error
+from jetstream_lakehouse.models import Event  # pylint: disable=import-error
+from jetstream_lakehouse.transport import Transport  # pylint: disable=import-error
 
-from databricks.labs.community_connector.sources.bluesky import errors
+from databricks.labs.community_connector.sources.bluesky.errors import (
+    ArchiveChanged,
+    CursorTooOld,
+    JetstreamError,
+    ProtocolError,
+    RefreshTimeout,
+)
 from databricks.labs.community_connector.sources.bluesky.options import Options
 
 
@@ -29,15 +35,15 @@ def translated_errors() -> Iterator[None]:
     try:
         yield
     except library_errors.ArchiveChanged as exc:
-        raise errors.ArchiveChanged(str(exc)) from None
+        raise ArchiveChanged(str(exc)) from None
     except library_errors.CursorTooOld as exc:
-        raise errors.CursorTooOld(str(exc)) from None
+        raise CursorTooOld(str(exc)) from None
     except library_errors.RefreshTimeout as exc:
-        raise errors.RefreshTimeout(str(exc)) from None
+        raise RefreshTimeout(str(exc)) from None
     except library_errors.ProtocolError as exc:
-        raise errors.ProtocolError(str(exc)) from None
+        raise ProtocolError(str(exc)) from None
     except library_errors.JetstreamError as exc:
-        raise errors.JetstreamError(str(exc)) from None
+        raise JetstreamError(str(exc)) from None
 
 
 @contextmanager

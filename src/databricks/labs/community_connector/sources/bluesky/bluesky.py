@@ -4,10 +4,6 @@ import json
 import re
 from typing import Any, Iterator, Mapping
 
-from databricks.labs.community_connector.interface.lakeflow_connect import LakeflowConnect
-from databricks.labs.community_connector.interface.supports_partition import (
-    SupportsPartitionedStream,
-)
 from pyspark.sql.types import (
     BinaryType,
     BooleanType,
@@ -18,6 +14,10 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
+from databricks.labs.community_connector.interface.lakeflow_connect import LakeflowConnect
+from databricks.labs.community_connector.interface.supports_partition import (
+    SupportsPartitionedStream,
+)
 from databricks.labs.community_connector.sources.bluesky.errors import CursorTooOld, ProtocolError
 from databricks.labs.community_connector.sources.bluesky.jetstream_lakeflow_adapter import (
     pinned_rows,
@@ -132,9 +132,9 @@ class BlueskyLakeflowConnect(LakeflowConnect, SupportsPartitionedStream):
 
     Parameters
     ----------
-    config : Options
-        Validated connector configuration. Lakeflow's string options are converted
-        to this model by the Lakeflow data source adapter.
+    config : Options or Mapping[str, Any]
+        Validated connector configuration or Lakeflow's string options. A mapping
+        is validated at the framework boundary before any archive operation.
 
     Attributes
     ----------
@@ -150,26 +150,28 @@ class BlueskyLakeflowConnect(LakeflowConnect, SupportsPartitionedStream):
     Create a fresh connector instance for each triggered pipeline refresh.
     """
 
-    def __init__(self, config: Options) -> None:
+    def __init__(self, config: Options | Mapping[str, Any]) -> None:
         """Create a connector for one bounded refresh.
 
         Parameters
         ----------
-        config : Options
-            Validated settings for the Jetstream endpoint and table defaults.
+        config : Options or Mapping[str, Any]
+            Validated settings or the string options supplied by Lakeflow.
 
         Raises
         ------
         TypeError
-            ``config`` is not a validated :class:`Options` instance.
+            ``config`` is neither a validated :class:`Options` instance nor a mapping.
 
         Notes
         -----
         The first planned window pins a sealed tip and configuration scope for
         this instance. A later triggered refresh should use a new instance.
         """
+        if isinstance(config, Mapping):
+            config = Options.parse(config, {})
         if not isinstance(config, Options):
-            raise TypeError("config must be a validated Options instance")
+            raise TypeError("config must be an Options instance or a mapping")
         super().__init__(config.to_options_dict())
         self.config = config
         self._refresh_high: int | None = None

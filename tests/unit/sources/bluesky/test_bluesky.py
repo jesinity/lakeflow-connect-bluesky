@@ -2,14 +2,13 @@ import copy
 import json
 
 import pytest
+from pyspark.sql.types import StringType, StructType, _make_type_verifier
+
 from databricks.labs.community_connector.interface.lakeflow_connect import LakeflowConnect
 from databricks.labs.community_connector.interface.supports_partition import (
     SupportsPartitionedStream,
 )
 from databricks.labs.community_connector.libs.utils import parse_value
-from databricks.labs.community_connector.sparkpds.registry import find_data_source
-from pyspark.sql.types import StringType, StructType, _make_type_verifier
-
 from databricks.labs.community_connector.sources.bluesky import (
     BlueskyDataSource,
     BlueskyLakeflowConnect,
@@ -21,6 +20,7 @@ from databricks.labs.community_connector.sources.bluesky.errors import (
     ProtocolError,
 )
 from databricks.labs.community_connector.sources.bluesky.options import MAX_SEQ, Options
+from databricks.labs.community_connector.sparkpds.registry import find_data_source
 
 
 def consume(connector, start=None, options=None):
@@ -99,9 +99,12 @@ def test_invalid_options(options):
         make_connector(options)
 
 
-def test_connector_requires_typed_configuration():
-    with pytest.raises(TypeError, match="validated Options"):
-        BlueskyLakeflowConnect({})
+def test_connector_accepts_framework_mapping_and_validates_it():
+    assert isinstance(BlueskyLakeflowConnect({}).config, Options)
+    with pytest.raises(ValueError, match="Unsupported connector option names"):
+        BlueskyLakeflowConnect({"typo": "value"})
+    with pytest.raises(TypeError, match="Options instance or a mapping"):
+        BlueskyLakeflowConnect(None)
 
 
 def test_secrets_not_in_repr():
@@ -279,11 +282,12 @@ def test_bad_plans_fail_closed(service, override):
 
 
 def test_spark_adapter_end_to_end(service):
+    from pyspark.sql.datasource import CaseInsensitiveDict
+    from pyspark.sql.streaming.datasource import ReadAllAvailable
+
     from databricks.labs.community_connector.sparkpds.lakeflow_datasource import (
         LakeflowPartitionedStreamReader,
     )
-    from pyspark.sql.datasource import CaseInsensitiveDict
-    from pyspark.sql.streaming.datasource import ReadAllAvailable
 
     source = BlueskyDataSource(
         CaseInsensitiveDict({"tableName": "events", "sourceName": "bluesky"})
@@ -296,6 +300,34 @@ def test_spark_adapter_end_to_end(service):
     assert [r.seq for r in rows] == list(range(1, 8))
     assert reader.latestOffset(end, ReadAllAvailable()) == end
     assert reader.partitions(end, end) == []
+
+
+def test_generated_single_file_registration_reads_archive(service):
+    """The upstream SDP bundle must use the same validated source contract."""
+    from pyspark.sql.datasource import CaseInsensitiveDict
+    from pyspark.sql.streaming.datasource import ReadAllAvailable
+
+    from databricks.labs.community_connector.sources.bluesky import (
+        _generated_bluesky_python_source as generated,
+    )
+
+    class Registry:
+        source = None
+
+        def register(self, source):
+            self.source = source
+
+    class Spark:
+        dataSource = Registry()
+
+    generated.register_lakeflow_source(Spark())
+    source = Spark.dataSource.source(CaseInsensitiveDict({"tableName": "events"}))
+    reader = source.streamReader(source.schema())
+    start = reader.initialOffset()
+    end = reader.latestOffset(start, ReadAllAvailable())
+    rows = [row for partition in reader.partitions(start, end) for row in reader.read(partition)]
+    assert [row.seq for row in rows] == list(range(1, 8))
+    assert reader.latestOffset(end, ReadAllAvailable()) == end
 
 
 def test_empty_archive_terminates(service):

@@ -13,6 +13,7 @@ dependencies = [
   "lakeflow-community-connectors>=0.1.0,<0.2",
   "jetstream-lakehouse==0.1.0",
   "pydantic>=2,<3",
+  "requests>=2.28,<3",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +49,10 @@ markers = ["live: opt-in authenticated Jetstream integration"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["**/_generated_*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "PLR1730"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["databricks", "tests"]

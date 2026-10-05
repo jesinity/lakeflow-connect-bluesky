@@ -1,29 +1,7 @@
-"""Bridge Lakeflow's Spark data source to the validated Bluesky connector."""
-
-from collections.abc import Mapping
-
-from databricks.labs.community_connector.sparkpds import LakeflowSource
+"""Register the Bluesky connector with Lakeflow's Spark data source API."""
 
 from databricks.labs.community_connector.sources.bluesky.bluesky import BlueskyLakeflowConnect
-from databricks.labs.community_connector.sources.bluesky.options import Options
-
-
-class _LakeflowConfigAdapter(BlueskyLakeflowConnect):
-    """Adapt Lakeflow's framework mapping to the connector's typed config.
-
-    Parameters
-    ----------
-    options : Mapping[str, str]
-        Connection and framework options passed by :class:`LakeflowSource`.
-
-    Notes
-    -----
-    This adapter is the framework boundary. Connector code receives a validated
-    :class:`Options` model instead of an unvalidated mapping.
-    """
-
-    def __init__(self, options: Mapping[str, str]) -> None:
-        super().__init__(Options.parse(options, {}))
+from databricks.labs.community_connector.sparkpds import LakeflowSource
 
 
 class BlueskyDataSource(LakeflowSource):
@@ -32,11 +10,8 @@ class BlueskyDataSource(LakeflowSource):
     Attributes
     ----------
     _lakeflow_connect_cls : type
-        Adapter that converts framework options into :class:`Options`.
-    _format_name : str
-        Format identifier used for Unity Catalog connection option injection.
+        Connector instantiated from Lakeflow's option mapping. Its constructor
+        validates the mapping before any planning or archive read.
     """
 
-    _lakeflow_connect_cls = _LakeflowConfigAdapter
-    # UC connection injection currently requires this framework format name.
-    _format_name = "lakeflow_connect"
+    _lakeflow_connect_cls = BlueskyLakeflowConnect

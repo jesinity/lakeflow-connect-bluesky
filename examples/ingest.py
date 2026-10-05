@@ -5,7 +5,6 @@ See README.md for dependency and connection setup.
 """
 
 from databricks.labs.community_connector.pipeline import ingest
-
 from databricks.labs.community_connector.sources.bluesky import BlueskyDataSource
 
 # Databricks supplies spark to this pipeline module.
