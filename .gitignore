@@ -16,3 +16,4 @@ build/
 .env.*
 .secrets.toml
 dev_config.json
+/recovery/

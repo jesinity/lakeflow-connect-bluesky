@@ -3,16 +3,16 @@ import io
 import pytest
 import requests
 from conftest import response
-
-from databricks.labs.community_connector.sources.bluesky.errors import (
+from jetstream_lakehouse.errors import (
     ArchiveChanged,
     CursorTooOld,
     JetstreamError,
     ProtocolError,
     RefreshTimeout,
 )
+from jetstream_lakehouse.transport import Transport
+
 from databricks.labs.community_connector.sources.bluesky.options import Options
-from databricks.labs.community_connector.sources.bluesky.transport import Transport
 
 
 def test_transient_errors_reconnect(service):

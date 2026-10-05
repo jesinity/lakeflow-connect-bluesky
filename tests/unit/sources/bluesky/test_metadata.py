@@ -3,8 +3,8 @@ from importlib.resources import files
 from pathlib import Path
 
 import yaml
-from databricks.labs.community_connector.libs.spec_parser import PipelineSpec
 
+from databricks.labs.community_connector.libs.spec_parser import PipelineSpec
 from databricks.labs.community_connector.sources.bluesky.options import TABLE_OPTIONS
 
 

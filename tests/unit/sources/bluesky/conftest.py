@@ -168,7 +168,5 @@ def service(monkeypatch, events):
     monkeypatch.setattr(
         requests.Session, "send", lambda self, request, **kw: server.send(request, **kw)
     )
-    monkeypatch.setattr(
-        "databricks.labs.community_connector.sources.bluesky.transport.time.sleep", lambda _: None
-    )
+    monkeypatch.setattr("jetstream_lakehouse.transport.time.sleep", lambda _: None)
     return server

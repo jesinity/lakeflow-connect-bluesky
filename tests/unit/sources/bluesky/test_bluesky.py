@@ -2,14 +2,13 @@ import copy
 import json
 
 import pytest
+from pyspark.sql.types import StringType, StructType, _make_type_verifier
+
 from databricks.labs.community_connector.interface.lakeflow_connect import LakeflowConnect
 from databricks.labs.community_connector.interface.supports_partition import (
     SupportsPartitionedStream,
 )
 from databricks.labs.community_connector.libs.utils import parse_value
-from databricks.labs.community_connector.sparkpds.registry import find_data_source
-from pyspark.sql.types import StructType, _make_type_verifier
-
 from databricks.labs.community_connector.sources.bluesky import (
     BlueskyDataSource,
     BlueskyLakeflowConnect,
@@ -20,7 +19,8 @@ from databricks.labs.community_connector.sources.bluesky.errors import (
     CursorTooOld,
     ProtocolError,
 )
-from databricks.labs.community_connector.sources.bluesky.options import Options
+from databricks.labs.community_connector.sources.bluesky.options import MAX_SEQ, Options
+from databricks.labs.community_connector.sparkpds.registry import find_data_source
 
 
 def consume(connector, start=None, options=None):
@@ -53,6 +53,16 @@ def test_discovery_schema_metadata(service):
     assert rows[2]["operation"] == "delete" and rows[2]["record"] is None
     assert rows[6]["is_resync"] is True
     assert rows[1]["event_time"] != rows[1]["witnessed_at"]
+
+
+def test_schema_validation_and_caller_isolation():
+    connector = make_connector({})
+    schema = connector.get_table_schema("events", {})
+    schema.add("caller_only", StringType())
+
+    assert "caller_only" not in connector.get_table_schema("events", {}).fieldNames()
+    with pytest.raises(ValueError):
+        connector.get_table_schema("events", {"max_retries": "99"})
 
 
 @pytest.mark.parametrize("method", ["get_table_schema", "read_table_metadata"])
@@ -89,13 +99,27 @@ def test_invalid_options(options):
         make_connector(options)
 
 
-def test_connector_requires_typed_configuration():
-    with pytest.raises(TypeError, match="validated Options"):
-        BlueskyLakeflowConnect({})
+def test_connector_accepts_framework_mapping_and_validates_it():
+    assert isinstance(BlueskyLakeflowConnect({}).config, Options)
+    with pytest.raises(ValueError, match="Unsupported connector option names"):
+        BlueskyLakeflowConnect({"typo": "value"})
+    with pytest.raises(TypeError, match="Options instance or a mapping"):
+        BlueskyLakeflowConnect(None)
 
 
 def test_secrets_not_in_repr():
     assert "supersecret" not in repr(Options.parse({"api_key": "supersecret"}, {}))
+
+
+@pytest.mark.parametrize("value", [True, "1", -1, MAX_SEQ + 1])
+def test_archive_sequence_rejects_invalid_values(value):
+    with pytest.raises(ProtocolError):
+        ArchiveValidator.sequence(value, "checkpoint seq")
+
+
+def test_archive_sequence_accepts_supported_bounds():
+    assert ArchiveValidator.sequence(0, "checkpoint seq") == 0
+    assert ArchiveValidator.sequence(MAX_SEQ, "checkpoint seq") == MAX_SEQ
 
 
 def test_base36_segment_name_from_live_snapshot():
@@ -216,6 +240,33 @@ def test_compaction_fails_recorded_retry(service):
 
 
 @pytest.mark.parametrize(
+    "damage",
+    ["missing_end", "missing_start", "missing_page", "missing_segments", "boolean_boundary"],
+)
+def test_malformed_saved_partition_fails_as_protocol_error(service, damage):
+    connector = make_connector({})
+    end = connector.latest_offset("events", {}, {})
+    partition = connector.get_partitions("events", {}, {}, end)[0]
+    partition = copy.deepcopy(partition)
+    if damage == "missing_end":
+        del partition["end"]
+    elif damage == "missing_start":
+        del partition["start"]
+    else:
+        pages = json.loads(partition["end"]["plan"])
+        if damage == "missing_page":
+            pages[0] = None
+        elif damage == "missing_segments":
+            del pages[0]["segments"]
+        else:
+            pages[0]["after"] = False
+        partition["end"]["plan"] = json.dumps(pages)
+
+    with pytest.raises(ProtocolError):
+        list(connector.read_partition("events", partition, {}))
+
+
+@pytest.mark.parametrize(
     "override",
     [
         lambda p: p.update(plannedThroughSeq=0),
@@ -231,11 +282,12 @@ def test_bad_plans_fail_closed(service, override):
 
 
 def test_spark_adapter_end_to_end(service):
+    from pyspark.sql.datasource import CaseInsensitiveDict
+    from pyspark.sql.streaming.datasource import ReadAllAvailable
+
     from databricks.labs.community_connector.sparkpds.lakeflow_datasource import (
         LakeflowPartitionedStreamReader,
     )
-    from pyspark.sql.datasource import CaseInsensitiveDict
-    from pyspark.sql.streaming.datasource import ReadAllAvailable
 
     source = BlueskyDataSource(
         CaseInsensitiveDict({"tableName": "events", "sourceName": "bluesky"})
@@ -248,6 +300,34 @@ def test_spark_adapter_end_to_end(service):
     assert [r.seq for r in rows] == list(range(1, 8))
     assert reader.latestOffset(end, ReadAllAvailable()) == end
     assert reader.partitions(end, end) == []
+
+
+def test_generated_single_file_registration_reads_archive(service):
+    """The upstream SDP bundle must use the same validated source contract."""
+    from pyspark.sql.datasource import CaseInsensitiveDict
+    from pyspark.sql.streaming.datasource import ReadAllAvailable
+
+    from databricks.labs.community_connector.sources.bluesky import (
+        _generated_bluesky_python_source as generated,
+    )
+
+    class Registry:
+        source = None
+
+        def register(self, source):
+            self.source = source
+
+    class Spark:
+        dataSource = Registry()
+
+    generated.register_lakeflow_source(Spark())
+    source = Spark.dataSource.source(CaseInsensitiveDict({"tableName": "events"}))
+    reader = source.streamReader(source.schema())
+    start = reader.initialOffset()
+    end = reader.latestOffset(start, ReadAllAvailable())
+    rows = [row for partition in reader.partitions(start, end) for row in reader.read(partition)]
+    assert [row.seq for row in rows] == list(range(1, 8))
+    assert reader.latestOffset(end, ReadAllAvailable()) == end
 
 
 def test_empty_archive_terminates(service):

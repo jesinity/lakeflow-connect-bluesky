@@ -8,13 +8,12 @@ version = "0.1.0"
 description = "Ingest Bluesky and AT Protocol events into Databricks using Lakeflow Connect and Jetstream."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 dependencies = [
   "lakeflow-community-connectors>=0.1.0,<0.2",
-  "requests>=2.32,<3",
-  "zstandard>=0.23,<1",
-  "cbor2>=5.6,<6",
-  "xxhash>=3.5,<4",
+  "jetstream-lakehouse==0.1.0",
+  "pydantic>=2,<3",
+  "requests>=2.28,<3",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +29,7 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["databricks.labs.community_connector.sources.bluesky*"]
+exclude = ["*.build", "*.build.*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.md"]
@@ -49,6 +49,10 @@ markers = ["live: opt-in authenticated Jetstream integration"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["**/_generated_*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "PLR1730"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["databricks", "tests"]

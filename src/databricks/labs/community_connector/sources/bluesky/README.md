@@ -1,50 +1,160 @@
-# Bluesky Lakeflow community connector
+# Lakeflow Bluesky Community Connector
 
-Source: `bluesky`. Table: `events`. Ingestion: append, primary key/cursor `seq`.
-Implements `LakeflowConnect` and `SupportsPartitionedStream`. Register
-`BlueskyDataSource` through `spark.dataSource.register` or `find_data_source("bluesky")`.
-This directory is the upstream-compatible connector package; do not install its
-per-source distribution alongside the standalone distribution (they own the same files).
+Ingest raw Bluesky and AT Protocol repository events from Jetstream's sealed
+archive into a triggered Databricks Lakeflow pipeline. The source name is
+`bluesky`; its only object is `events`.
 
-Jetstream v2 HTTP snapshots provide bounded replay of the retrievable sealed archive.
-Each triggered update covers at most 10,000 sequence positions by default. The tip
-and archive checksums are recorded in the candidate offset; Spark commits it only
-after its Delta batch succeeds. Retries read the recorded plan and fail if compaction
-has removed its generation. Continuous pipelines and legacy v1 sockets are unsupported.
+## Prerequisites
 
-Connection options: `endpoint` (HTTPS origin, default
-`https://jetstream.us-east.bsky.network`), `api_key` (raw bearer key; public archive
-access requires one). Mark the key secret in Unity Catalog; see `connector_spec.yaml`.
+- A Databricks workspace with Unity Catalog and Community Connectors enabled,
+  plus permission to create a connection, pipeline, and destination table.
+- Network access from the pipeline to a Jetstream v2 HTTPS archive.
+- A Jetstream archive bearer key for the public hosted endpoint. A self-hosted
+  archive may allow anonymous reads.
+- A triggered pipeline. Continuous pipelines are not supported.
 
-Table options, as strings:
+## Setup
 
-| Option | Default |
-| --- | --- |
-| `starting_cursor` (exclusive sequence, not timestamp) | `0` |
-| `collections` (comma-separated NSIDs or namespace wildcards) | all |
-| `kinds` (comma-separated `commit`, `identity`, `account`, or `sync`) | all |
-| `dids` (comma-separated DIDs) | all |
-| `max_events_per_refresh` (sequence span, 1–100,000) | `10000` |
-| `request_timeout_seconds` | `20` |
-| `refresh_timeout_seconds` | `120` |
-| `max_retries` | `3` |
-| `include_raw_payload` | `true` |
+### Required connection parameters
 
-Kinds are filtered by the planner and checked again after decoding. Set `collections`
-only when `kinds` includes `commit`; collection filters apply to commit events.
+| Parameter | Type | Required | Description | Example |
+| --- | --- | --- | --- | --- |
+| `endpoint` | string | No | Jetstream v2 HTTPS origin; defaults to `https://jetstream.us-east.bsky.network`. Keep the same origin for an existing checkpoint. | `https://jetstream.us-east.bsky.network` |
+| `api_key` | secret string | For the public hosted archive | Raw bearer key used for archive HTTP access. A self-hosted anonymous archive may omit it. | Secret supplied through Unity Catalog |
+| `externalOptionsAllowList` | comma-separated string | Yes, when creating the connection directly | Permits every Bluesky-specific table option listed below. The Community Connector UI/CLI can populate this from `connector_spec.yaml`. | Full list below |
 
-`events` retains sequence, display/witness timestamps, DID, kind, operation, collection,
-rkey, CID, revision, a resync flag, decoded record/event JSON strings, and optional raw
-DAG-CBOR bytes. Delete/account/sync markers remain append events. Collection filtering
-does not remove non-commit markers. Use them when deriving current record state.
+The complete Bluesky-specific `externalOptionsAllowList` value is:
 
-Archive compaction removes superseded historical records before some reads. The API
-does not expose a comprehensive compaction floor, so this source cannot certify a
-complete historical audit log. A sealed archive also has greater latency than a live
-socket. Never change endpoints with an existing checkpoint; sequences are instance-local.
-Checkpoint resets into an existing append table may produce duplicates.
+```text
+starting_cursor,collections,kinds,dids,max_events_per_refresh,request_timeout_seconds,refresh_timeout_seconds,max_retries,include_raw_payload
+```
 
-Repository events are not hydrated Bluesky views. Profiles, usernames, threads, and
-engagement counts need AppView enrichment. Full setup, SQL, and operational guidance
-are in the [standalone project's README](https://github.com/jesinity/lakeflow-connect-bluesky)
-and its `docs/protocol.md`.
+The framework may also add its own standard pipeline option names. Do not
+replace the generated allowlist with only a subset of the names above.
+
+### Obtain the archive key
+
+Create an archive access key with the operator of the Jetstream endpoint you
+will read. Store it as a secret in the Unity Catalog connection; pass the raw
+key without a `Bearer ` prefix. The key is never a table option. If you use an
+anonymous self-hosted endpoint, omit it.
+
+### Create a Unity Catalog connection
+
+Use the Community Connector flow from **Add Data**, select Bluesky, and enter
+the endpoint and key. You can also create a `COMMUNITY` connection with the
+standard Unity Catalog API or the Community Connector CLI using
+`connector_spec.yaml`, with `sourceName=bluesky`. When creating the connection
+directly, include the full `externalOptionsAllowList` value above so pipeline
+table options reach the source. Keep the key in the connection's secret field.
+
+## Supported objects
+
+| Object | Ingestion | Key and cursor | Notes |
+| --- | --- | --- | --- |
+| `events` | Append-only | `seq` | Includes commit create/update/delete, identity, account, and sync events. |
+
+The `seq` value is an instance-local event identifier. `record` and
+`event_payload` contain JSON text for flexible AT Protocol payloads;
+`raw_payload` optionally contains the exact archived DAG-CBOR bytes. Repository
+events are not hydrated Bluesky views: profiles, threads, and engagement
+counts require separate AppView enrichment. Delete and account markers are
+appended as rows rather than applied as Lakeflow CDC deletes.
+
+## Table configurations
+
+### Source and destination
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `source_table` | Yes | Exactly `events`. |
+| `destination_catalog` | No | Destination Unity Catalog catalog. |
+| `destination_schema` | No | Destination schema. |
+| `destination_table` | No | Destination table name; defaults to `events`. |
+
+### Common `table_configuration` options
+
+The pipeline's standard destination options (such as `primary_keys`,
+`sequence_by`, and `cluster_by`) are consumed by Lakeflow. This source declares
+append ingestion; configure the destination as `APPEND_ONLY` when supplying an
+explicit `scd_type`.
+
+### Bluesky-specific `table_configuration` options
+
+All values are strings. Pydantic validates them before a read.
+
+| Option | Required | Default | Description |
+| --- | --- | --- | --- |
+| `starting_cursor` | No | `0` | Exclusive sequence to use without a checkpoint. A zero start can take many refreshes to reach current data. |
+| `collections` | No | all | Comma-separated collection NSIDs or namespace wildcards; applies to commits only. |
+| `kinds` | No | all | Comma-separated subset of `commit`, `identity`, `account`, `sync`. Must include `commit` when using `collections`. |
+| `dids` | No | all | Comma-separated repository DIDs. |
+| `max_events_per_refresh` | No | `10000` | Maximum sequence span per update, from 1 to 100,000. Filtering can yield fewer rows. |
+| `request_timeout_seconds` | No | `20` | Per-request timeout, from 1 to 120 seconds. |
+| `refresh_timeout_seconds` | No | `120` | Planning/read budget, from 1 to 900 seconds. |
+| `max_retries` | No | `3` | Additional attempts for transient HTTP failures, from 0 to 8. |
+| `include_raw_payload` | No | `true` | `true` or `false`; retain exact event payload bytes. |
+
+## Data type mapping
+
+| Jetstream value | Databricks column/type | Meaning |
+| --- | --- | --- |
+| Event sequence | `seq BIGINT` | Incremental cursor and event key. |
+| Indexed/witness time | `event_time TIMESTAMP`, `witnessed_at TIMESTAMP` | Display and immutable witness timestamps in UTC. |
+| Repository and event metadata | `did`, `kind`, `operation`, `collection`, `rkey`, `cid`, `rev` as `STRING` | Identity and commit metadata; some fields are null for non-commit events. |
+| Resync kind | `is_resync BOOLEAN` | Marks a resync replacement create. |
+| Decoded payload | `record STRING`, `event_payload STRING` | JSON text; `record` is null for deletes and non-commit events. |
+| Encoded payload | `raw_payload BINARY` | Optional exact DAG-CBOR event payload. |
+
+## How to run
+
+1. Install this source wheel, the matching Lakeflow Community Connectors
+   framework, and `jetstream-lakehouse==0.1.0` in a triggered pipeline. PySpark
+   comes from the Databricks runtime.
+2. Create the connection above and add `events` to your pipeline spec. For a
+   narrow first run, select one collection and use a recent sealed sequence
+   from the **same** endpoint as `starting_cursor`.
+
+```json
+{
+  "connection_name": "bluesky_jetstream",
+  "objects": [{"table": {
+    "source_table": "events",
+    "destination_catalog": "main",
+    "destination_schema": "bluesky",
+    "destination_table": "events",
+    "table_configuration": {
+      "scd_type": "APPEND_ONLY",
+      "starting_cursor": "0",
+      "collections": "app.bsky.feed.post"
+    }
+  }}]
+}
+```
+
+3. Run a small update, inspect the table and checkpoint, then schedule further
+   triggered updates. Preserve the checkpoint and endpoint. The standalone
+   project includes a runnable [pipeline example](https://github.com/jesinity/lakeflow-connect-bluesky/blob/integration/jetstream-lakehouse/examples/ingest.py)
+   and [SQL for current posts](https://github.com/jesinity/lakeflow-connect-bluesky/blob/integration/jetstream-lakehouse/examples/posts.sql).
+
+### Best practices and troubleshooting
+
+- Start with a small `max_events_per_refresh` and a recent sequence. Filters
+  can produce an empty table update while still advancing the checkpoint.
+- Archive compaction can remove earlier events before the first read. Successful
+  replay is not proof of a complete historical audit log.
+- If a pinned segment is compacted before a retry, the connector fails without
+  advancing the checkpoint. Investigate the original generation; do not reset
+  the checkpoint into an existing append table without reviewing duplicates.
+- Authentication failures indicate a missing/invalid archive key. A timeout
+  can be addressed by narrowing the sequence span or increasing the bounded
+  request budget within the documented limits.
+- This reads sealed segments, so it lags the live Jetstream socket. It does
+  not offer a continuous firehose or automatic failover between origins.
+
+## References
+
+- [Jetstream archive API research](bluesky_api_doc.md)
+- [Connector specification](connector_spec.yaml)
+- [Jetstream v2 overview](https://bsky.network/docs/jetstream/)
+- [Standalone deployment and operations guide](https://github.com/jesinity/lakeflow-connect-bluesky)
