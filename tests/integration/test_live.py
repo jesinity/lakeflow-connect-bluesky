@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 from dynaconf import Dynaconf
+from jetstream_lakehouse.transport import Transport
 
 from databricks.labs.community_connector.sources.bluesky import BlueskyLakeflowConnect
 from databricks.labs.community_connector.sources.bluesky.options import Options
-from databricks.labs.community_connector.sources.bluesky.transport import Transport
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENDPOINT = "https://jetstream.us-east.bsky.network"

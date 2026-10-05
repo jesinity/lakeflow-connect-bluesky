@@ -8,7 +8,7 @@ from databricks.labs.community_connector.interface.supports_partition import (
 )
 from databricks.labs.community_connector.libs.utils import parse_value
 from databricks.labs.community_connector.sparkpds.registry import find_data_source
-from pyspark.sql.types import StructType, _make_type_verifier
+from pyspark.sql.types import StringType, StructType, _make_type_verifier
 
 from databricks.labs.community_connector.sources.bluesky import (
     BlueskyDataSource,
@@ -20,7 +20,7 @@ from databricks.labs.community_connector.sources.bluesky.errors import (
     CursorTooOld,
     ProtocolError,
 )
-from databricks.labs.community_connector.sources.bluesky.options import Options
+from databricks.labs.community_connector.sources.bluesky.options import MAX_SEQ, Options
 
 
 def consume(connector, start=None, options=None):
@@ -53,6 +53,16 @@ def test_discovery_schema_metadata(service):
     assert rows[2]["operation"] == "delete" and rows[2]["record"] is None
     assert rows[6]["is_resync"] is True
     assert rows[1]["event_time"] != rows[1]["witnessed_at"]
+
+
+def test_schema_validation_and_caller_isolation():
+    connector = make_connector({})
+    schema = connector.get_table_schema("events", {})
+    schema.add("caller_only", StringType())
+
+    assert "caller_only" not in connector.get_table_schema("events", {}).fieldNames()
+    with pytest.raises(ValueError):
+        connector.get_table_schema("events", {"max_retries": "99"})
 
 
 @pytest.mark.parametrize("method", ["get_table_schema", "read_table_metadata"])
@@ -96,6 +106,17 @@ def test_connector_requires_typed_configuration():
 
 def test_secrets_not_in_repr():
     assert "supersecret" not in repr(Options.parse({"api_key": "supersecret"}, {}))
+
+
+@pytest.mark.parametrize("value", [True, "1", -1, MAX_SEQ + 1])
+def test_archive_sequence_rejects_invalid_values(value):
+    with pytest.raises(ProtocolError):
+        ArchiveValidator.sequence(value, "checkpoint seq")
+
+
+def test_archive_sequence_accepts_supported_bounds():
+    assert ArchiveValidator.sequence(0, "checkpoint seq") == 0
+    assert ArchiveValidator.sequence(MAX_SEQ, "checkpoint seq") == MAX_SEQ
 
 
 def test_base36_segment_name_from_live_snapshot():
@@ -212,6 +233,33 @@ def test_compaction_fails_recorded_retry(service):
     partition = connector.get_partitions("events", {}, {}, end)[0]
     service.checksum = "0000000000000001"
     with pytest.raises(ArchiveChanged):
+        list(connector.read_partition("events", partition, {}))
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["missing_end", "missing_start", "missing_page", "missing_segments", "boolean_boundary"],
+)
+def test_malformed_saved_partition_fails_as_protocol_error(service, damage):
+    connector = make_connector({})
+    end = connector.latest_offset("events", {}, {})
+    partition = connector.get_partitions("events", {}, {}, end)[0]
+    partition = copy.deepcopy(partition)
+    if damage == "missing_end":
+        del partition["end"]
+    elif damage == "missing_start":
+        del partition["start"]
+    else:
+        pages = json.loads(partition["end"]["plan"])
+        if damage == "missing_page":
+            pages[0] = None
+        elif damage == "missing_segments":
+            del pages[0]["segments"]
+        else:
+            pages[0]["after"] = False
+        partition["end"]["plan"] = json.dumps(pages)
+
+    with pytest.raises(ProtocolError):
         list(connector.read_partition("events", partition, {}))
 
 

@@ -13,10 +13,7 @@ license = "Apache-2.0"
 dependencies = [
   "lakeflow-community-connectors>=0.1.0,<0.2",
   "jetstream-lakehouse==0.1.0",
-  "requests>=2.32,<3",
-  "zstandard>=0.23,<1",
-  "cbor2>=5.6,<6",
-  "xxhash>=3.5,<4",
+  "pydantic>=2,<3",
 ]
 
 [tool.setuptools]

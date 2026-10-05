@@ -45,7 +45,7 @@ including a JSON string holding the plan. A retried partition never discovers a 
 tip or replans. This avoids the simple reader's current `readBetweenOffsets` behavior
 that ignores its `end` argument. The recorded plan pins archive generations; archive
 mutability cannot be turned into full historical exactly-once delivery without durable
-staging outside Jetstream. This MVP fails when a pinned generation becomes unavailable.
+staging outside Jetstream. This connector fails when a pinned generation becomes unavailable.
 
 No time-based start option is offered: current archive plans accept sequences, while
 legacy timestamp cursor translation is a live-socket feature. No fabricated endpoint,

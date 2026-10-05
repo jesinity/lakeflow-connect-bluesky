@@ -3,11 +3,38 @@
 import json
 
 import pytest
+from jetstream_lakehouse import Client, Config
 
 from databricks.labs.community_connector.sources.bluesky.bluesky import BlueskyLakeflowConnect
 from databricks.labs.community_connector.sources.bluesky.errors import ProtocolError
-from databricks.labs.community_connector.sources.bluesky.library_adapter import snapshot_rows
+from databricks.labs.community_connector.sources.bluesky.jetstream_lakeflow_adapter import (
+    lakeflow_row,
+    translated_errors,
+)
 from databricks.labs.community_connector.sources.bluesky.options import Options
+
+
+def snapshot_rows(options: Options, after: int, max_batch_bytes: int) -> tuple[list[dict], int]:
+    """Compare the public library reader with the connector's pinned reader."""
+    client = Client(
+        Config(
+            endpoint=options.endpoint,
+            api_key=options.api_key,
+            collections=options.collections,
+            kinds=options.kinds,
+            dids=options.dids,
+            max_sequence_span=options.max_events_per_refresh,
+            max_batch_bytes=max_batch_bytes,
+            request_timeout_seconds=options.request_timeout_seconds,
+            refresh_timeout_seconds=options.refresh_timeout_seconds,
+            max_retries=options.max_retries,
+            include_raw_payload=options.include_raw_payload,
+        )
+    )
+    with translated_errors():
+        batch = client.snapshot(after)
+    rows = [lakeflow_row(event, options.include_raw_payload) for event in batch.events]
+    return rows, batch.through_seq
 
 
 @pytest.mark.parametrize(

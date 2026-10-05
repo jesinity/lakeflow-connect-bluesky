@@ -648,12 +648,9 @@ name = "lakeflow-connect-bluesky"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "cbor2" },
     { name = "jetstream-lakehouse" },
     { name = "lakeflow-community-connectors" },
-    { name = "requests" },
-    { name = "xxhash" },
-    { name = "zstandard" },
+    { name = "pydantic" },
 ]
 
 [package.optional-dependencies]
@@ -669,17 +666,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1" },
-    { name = "cbor2", specifier = ">=5.6,<6" },
     { name = "dynaconf", marker = "extra == 'dev'", specifier = ">=3.3.5,<4" },
     { name = "jetstream-lakehouse", specifier = "==0.1.0" },
     { name = "lakeflow-community-connectors", git = "https://github.com/databrickslabs/lakeflow-community-connectors.git?rev=ddc153b9741b686759ad85f25d2d45ca8a6ac24b" },
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "pyspark", marker = "extra == 'dev'", specifier = ">=4.2.0.dev0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<9" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5,<7" },
-    { name = "requests", specifier = ">=2.32,<3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9" },
-    { name = "xxhash", specifier = ">=3.5,<4" },
-    { name = "zstandard", specifier = ">=0.23,<1" },
 ]
 provides-extras = ["dev"]
 

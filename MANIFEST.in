@@ -3,3 +3,4 @@ recursive-include docs *.md
 recursive-include examples *.py *.json *.sql
 recursive-include tests *.py *.json *.md *.jss
 include src/databricks/labs/community_connector/sources/bluesky/pyproject.toml
+prune src/databricks/labs/community_connector/sources/bluesky/build

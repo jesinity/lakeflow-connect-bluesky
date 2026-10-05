@@ -7,13 +7,23 @@ This community connector exposes one incremental, append-only `events` table usi
 `SupportsPartitionedStream`. It does not open a live WebSocket. The Python distribution
 is `lakeflow-connect-bluesky`; the Lakeflow source name is `bluesky`.
 
-Status: an offline-tested MVP with passing authenticated Jetstream and triggered
-Databricks Spark pipeline smoke tests. Two successive direct Spark updates produced
-200 distinct sequences, and the documented `ingest.py` path produced 100 rows in a
-separate table. Managed Community Connector pipeline validation is still pending
-because Databricks failed during Python runtime initialization, before connector code
-ran. It is not an official Databricks or Bluesky product. See [protocol verification](docs/protocol.md)
-for pinned upstream revisions and constraints.
+Archive transport and decoding use the pinned `jetstream-lakehouse==0.1.0`
+package. The connector retains Lakeflow-specific planning, checkpoints, and row
+conversion. See [library integration](docs/library-integration.md) for the
+current package API boundary.
+
+Status: community preview. The package-backed connector has passed offline tests,
+three opt-in authenticated Jetstream tests, and a triggered Databricks pipeline
+smoke update. Managed Community Connector pipeline validation remains pending
+after a Databricks Python runtime initialization failure that occurred before
+connector code ran. This is not an official Databricks or Bluesky product. See
+[protocol verification](docs/protocol.md) for pinned upstream revisions and constraints.
+
+The source is split by responsibility: `data_source.py` registers the Lakeflow
+Spark adapter; `options.py` validates connection and table settings; `bluesky.py`
+plans bounded windows and replays checkpoints; and `jetstream_lakeflow_adapter.py`
+converts events from `jetstream-lakehouse` into the table schema. The archive
+transport and binary decoder live in that published dependency.
 
 ## Architecture and delivery contract
 
@@ -36,7 +46,7 @@ mode is not supported. Large backfills require repeated updates. The instance al
 pins the tip so even direct repeated `read_table` calls terminate under ongoing traffic.
 
 The partitioned interface is used for its explicit start/end replay contract; this
-MVP uses a single ordered partition. The upstream simple reader currently ignores
+version uses a single ordered partition. The upstream simple reader currently ignores
 the end offset during recovery. Do not wrap this connector in that simple reader.
 `read_table` remains available for the interface/test harness and eagerly completes
 bounded I/O before returning `(iterator, candidate_offset)`. A direct caller must
@@ -77,7 +87,8 @@ adapter. Dependency installation needs the normal package/Git network access.
 
 Connection parameters belong in a Unity Catalog COMMUNITY connection; table options
 belong in `table_configuration`. All option values are strings. Unknown options fail
-validation. The packaged [connector spec](src/databricks/labs/community_connector/sources/bluesky/connector_spec.yaml)
+validation. Pydantic validates option values and combinations after the connection and
+table options are merged. The packaged [connector spec](src/databricks/labs/community_connector/sources/bluesky/connector_spec.yaml)
 defines the secret field and external options allowlist.
 
 | Option | Default | Meaning |
@@ -212,9 +223,9 @@ and reads a recent window by default. Set
 specific historical range; optionally set `JETSTREAM_ENDPOINT` or `ENDPOINT`.
 CI does not set these variables.
 
-Next milestone: validate the managed Community Connector ingestion path after the
-Databricks Python runtime startup issue is resolved, exercise forced task recovery,
-and benchmark sealing lag/throughput before upstream review.
+Before requesting upstream review, validate the managed Community Connector
+ingestion path after the Databricks Python runtime startup issue is resolved,
+exercise forced task recovery, and benchmark sealing lag/throughput.
 
 ## License
 

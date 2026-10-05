@@ -12,5 +12,8 @@ create/update. Delete payload is empty. `segment.Config.MaxEventsPerBlock=2`;
 `Append`, `Flush` when full, then `Seal`. Tests read this fixture through the full
 HTTP/header/footer/checksum/block-decoder path. Go is not needed to run tests or build.
 
+The generator source and command were not retained in this repository, so the exact
+fixture provenance cannot be independently reproduced from this checkout alone.
+
 Regenerate only when intentionally adopting a new archive format. Record the new
 upstream revision and review decoded output. See the root NOTICE for attribution.
